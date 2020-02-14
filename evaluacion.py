@@ -14,7 +14,7 @@ simple_00 = pd.read_csv('data/CE_resultado_10_100_0.0.csv', sep=';',
                         header=None)
 simple_025 = pd.read_csv('data/CE_resultado_10_100_0.25.csv', sep=';',
                          names=['n_iter', 'n_prom', 'n_inst', 'time', 'maximo', 'minimo', 'media', 'desvstd'],
-                         header=None)
+                         headr=None)
 simple_05 = pd.read_csv('data/CE_resultado_10_100_0.5.csv', sep=';',
                         names=['n_iter', 'n_prom', 'n_inst', 'time', 'maximo', 'minimo', 'media', 'desvstd'],
                         header=None)

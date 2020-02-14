@@ -14,6 +14,7 @@ import random
 import os
 import numpy as np
 import warnings
+import pandas as pd
 
 
 class generador_ejemplos:
@@ -32,6 +33,7 @@ class generador_ejemplos:
         self.__problema__ = problema
         self.__seed_gen__ = seed_gen
         self.__seed_ea__ = seed_ea
+
         print('Se generaran instancias del problema: ' + problema)
         # Comprobamos la existencia del directorio, sino lo creamos
         if type(data_path) is type(None):
@@ -94,19 +96,20 @@ class algoritmo_genetico():
     """
     Esta clase contiene lo necesario para ejecutar un algoritmo genético
     """
+
     def __init__(self):
         """
         Se incializan variables necesarias para otros métodos de la clase
         """
         print("Implementacion de un algoritmo genetico")
-        self.__tiempos__ = [] # para métricas
-        self.__tiempos__.append(time.time()) # tiempo inicial
-        self.__minimos__ = [] # para métricas
-        self.__maximos__ = [] # para métricas
-        self.__medias__ = [] # para métricas
-        self.__stds__ = [] # para métricas
+        self.__tiempos__ = []  # para métricas
+        self.__tiempos__.append(time.time())  # tiempo inicial
+        self.__minimos__ = []  # para métricas
+        self.__maximos__ = []  # para métricas
+        self.__medias__ = []  # para métricas
+        self.__stds__ = []  # para métricas
 
-        self.__fit_pob__ = None # para el  modelo generacional
+        self.__fit_pob__ = None  # para el  modelo generacional
 
     def carga_instancia(self, ruta, sep=';'):
         """
@@ -131,7 +134,6 @@ class algoritmo_genetico():
         """
         self.__indice_instancia__ = indice_instancia
         self.__instancia__ = self.__instancias__[self.__indice_instancia__]
-
 
     def codifica_fenotipo_viajante(self, sep_punt=','):
         """
@@ -331,7 +333,6 @@ class algoritmo_genetico():
             self.__descendencia__.append(
                 self.__swap_mutation__(self.__part_map_cross__(padre1, padre2)[0], swap_prob=swap_prob))
 
-
     def modelo_generacional(self, swap_prob=0.4, elitismo=True):
         """
         Lleva a cabo toda la creación de una nueva generación. Es independiente del método o problema aplicado ya que
@@ -422,7 +423,161 @@ class algoritmo_genetico():
             return self.__descendencia__[self.__fit_desc__.index(max(self.__fit_desc__))]
 
 
-def ejecuta(sp, n_pob, n_punt, max_iter):
+class algortimo_evolutivo():
+    """
+    Esta clase contiene lo necesario para ejecutar un algoritmo evolutivo
+    """
+
+    def __init__(self, sd0, modo='gaussian_paso_unico', modo_desc='solo_desc', t=None):
+        """
+        Se incializan variables necesarias para otros métodos de la clase
+        """
+        self.__modo__ = modo
+        self.__sd__ = sd0
+        self.__t__ = t
+        self.__modo_desc__ = modo_desc
+        print("Implementacion de un algoritmo evolutivo")
+        self.__tiempos__ = []  # para métricas
+        self.__tiempos__.append(time.time())  # tiempo inicial
+        self.__minimos__ = []  # para métricas
+        self.__maximos__ = []  # para métricas
+        self.__medias__ = []  # para métricas
+        self.__stds__ = []  # para métricas
+        self.__cambios__ = 0
+        self.__fit__ = None  # para el  modelo generacional
+
+    def define_funcion_optimizar(self, funcion, desplazamiento, lim1, lim2):
+        self.__lim1__ = lim1
+        self.__lim2__ = lim2
+        self.__desplazamiento__ = desplazamiento
+        if funcion == 'ESFERA':
+            self.__funcion_opt__ = 'ESFERA'
+
+            def funcion_esfera(variables):
+                """
+                Ejecuta una esfera desplazada
+                :param variables:
+                :return:
+                """
+                return sum([(x - desplazamiento) ** 2 for x in variables])
+
+            self.funcion = funcion_esfera
+
+        if funcion == 'SCHWEFEL':
+            def funcion_schwefel(variables):
+                return 418.9829 * len(variables) + sum([-1 * x * np.sin(np.sqrt(abs(x))) for x in variables])
+            self.funcion = funcion_schwefel
+    def genera_poblacion(self, n_pob, n_dim):
+        self.__n_pob__ = n_pob
+        self.__n_dim__ = n_dim
+        pob = []
+        for i in range(n_pob):
+            tmp = []
+            for i in range(n_dim):
+                tmp.append(random.random() * np.abs(self.__lim1__ - self.__lim2__) + self.__lim1__)
+            pob.append(tmp + [random.random() * self.__sd__])
+        self.poblacion = pd.DataFrame(np.stack(pob))
+        if type(self.__t__) is type(None):
+            self.__t__ = 1. / np.sqrt(n_pob)
+
+    def __muta_gaussian__(self, punto, learning_rate, umbral=0.01, mean=0, norm_sd=1):
+        """
+        Mutación gaussiana
+        :param punto: punto a mutar
+        :param sd: parámetro sigma
+        :param mean: media de la segunda gaussiana
+        :param norm_sd: es la desviación estandar de la segunda gaussiana
+        :return:
+        """
+        __sd_new__ = punto[len(punto) - 1] * np.exp(learning_rate * random.gauss(0, 1))
+        if __sd_new__ < umbral:
+            __sd_new__ = umbral
+        return pd.Series([x + __sd_new__ * random.gauss(mean, norm_sd) for x in punto[:-1]] + [__sd_new__])
+
+    def __recombinacion_discreta__(self, elementos):
+        rango = list(range(0, elementos))
+        n1 = random.randint(0, elementos)
+        ind1 = random.sample(rango, n1)
+        for i in ind1:
+            rango.remove(i)
+        return ind1, rango
+
+    def __recombina_series__(self, s1, s2, modo='discreta'):
+        if modo == 'discreta':
+            id1, id2 = self.__recombinacion_discreta__(self.__n_dim__ + 1)
+        return pd.concat([s1.iloc[id1], s2.iloc[id2]], axis=0).sort_index()
+
+    def recombina(self, lamb):
+        self.__n_desc__ = self.__n_pob__
+        self.__n_offs_tot__ = lamb
+
+        df_recombined = pd.DataFrame()
+        for i in range(0, self.__n_offs_tot__):
+            i1 = random.randint(0, len(self.poblacion) - 1)
+            i2 = random.randint(0, len(self.poblacion) - 1)
+            tmp = self.__recombina_series__(self.poblacion.iloc[i1, :],
+                                            self.poblacion.iloc[i2, :])
+            df_recombined = pd.concat([df_recombined, tmp], axis=1)
+        df_recombined = df_recombined.T.reset_index(drop=True)
+        self.__df_recombined__ = df_recombined
+
+    def muta(self, umbral=0.01, mean=0, norm_sd=1, modo='gaussian_paso_unico'):
+        if self.__modo__ == modo:
+            self.__df_recombined__ = self.__df_recombined__.apply(
+                self.__muta_gaussian__, axis=1, args=(self.__t__, umbral, mean, norm_sd))
+            self.__df_recombined__.iloc[:, :self.__n_dim__] = self.__df_recombined__.iloc[:, :self.__n_dim__].clip(
+                lower=self.__lim1__,
+                upper=self.__lim2__)
+
+    def genera_descencencia(self, verbose=False):
+        if self.__modo_desc__ == 'solo_desc':
+            self.__df_recombined__.loc[:, self.__n_dim__ + 1] = self.__df_recombined__.iloc[:, :self.__n_dim__].apply(
+                self.funcion,
+                axis=1)
+            self.df_desc = self.__df_recombined__.sort_values(by=self.__n_dim__ + 1, ascending=True).iloc[:self.__n_desc__,
+                           :self.__n_dim__ + 1].reset_index(drop=True)
+            self.__fit_mean_new__ = self.__df_recombined__.sort_values(self.__n_dim__ + 1, ascending=True).iloc[
+                                    :self.__n_desc__,
+                                    self.__n_dim__ + 1].reset_index(drop=True).mean()
+        if self.__modo_desc__ == 'desc_y_padres':
+            tmp = pd.concat([self.poblacion, self.__df_recombined__]).reset_index(drop=True)
+            tmp.loc[:, self.__n_dim__ + 1] = tmp.iloc[:, :self.__n_dim__].apply(
+                self.funcion,
+                axis=1)
+            self.df_desc = tmp.sort_values(by=self.__n_dim__ + 1, ascending=True).iloc[:self.__n_desc__,
+                           :self.__n_dim__ + 1].reset_index(drop=True)
+            self.__fit_mean_new__ = tmp.sort_values(self.__n_dim__ + 1, ascending=True).iloc[
+                                    :self.__n_desc__,
+                                    self.__n_dim__ + 1].reset_index(drop=True).mean()
+        if verbose:
+            print(self.__fit_mean_new__)
+
+    def fin_paso(self, verbose=False):
+        if type(self.__fit__) is type(None):
+            self.__fit__ = self.__fit_mean_new__
+            self.__poblacion__ = self.df_desc
+            self.__cambios__ += 1
+        elif self.__fit_mean_new__ < self.__fit__:
+            if verbose:
+                print("NUMERO DE GENERACIONES")
+                print(len(self.__tiempos__))
+                print("NUMERO DE CAMBIOS")
+                print(self.__cambios__ + 1)
+                print("FIT NUEVO")
+                print(self.__fit_mean_new__)
+                print("FIT ANTERIOR")
+                print(self.__fit__)
+                print(" media de sd ")
+                print(self.poblacion.iloc[:, self.__n_dim__].mean())
+            self.__fit__ = self.__fit_mean_new__
+            self.poblacion = self.df_desc
+            self.__cambios__ += 1
+
+        self.__medias__.append(self.__fit__)
+        self.__tiempos__.append(time.time())
+
+
+def ejecuta(ruta, sp, n_pob, n_punt, max_iter):
     """
     Función para la paralelización
     :param sp: Probabilidad de mutación
@@ -431,5 +586,5 @@ def ejecuta(sp, n_pob, n_punt, max_iter):
     :param max_iter: Límite superior a las iteraciones.
     :return:
     """
-    os.system("C:\\Users\\luis_\\Anaconda3\\python.exe problema_viajante_mt_sp.py " +
+    os.system(ruta +
               " ".join([str(sp), str(n_pob), str(n_punt), str(max_iter)]))
