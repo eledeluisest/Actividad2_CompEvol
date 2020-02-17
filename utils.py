@@ -428,25 +428,34 @@ class algortimo_evolutivo():
     Esta clase contiene lo necesario para ejecutar un algoritmo evolutivo
     """
 
-    def __init__(self, sd0, modo='gaussian_paso_unico', modo_desc='solo_desc', t=None):
+    def __init__(self, sd0, modo='gaussian_paso_unico', modo_desc='solo_desc', t=None, modo_muta='un_paso',
+                 t_prim=None):
         """
         Se incializan variables necesarias para otros métodos de la clase
         """
         self.__modo__ = modo
         self.__sd__ = sd0
         self.__t__ = t
+        self.__t_prim__ = t_prim
         self.__modo_desc__ = modo_desc
+        self.__modo_muta__ = modo_muta
         print("Implementacion de un algoritmo evolutivo")
+        print([self.__modo__, self.__sd__, self.__t__, self.__t_prim__, self.__modo_desc__, self.__modo_muta__])
         self.__tiempos__ = []  # para métricas
         self.__tiempos__.append(time.time())  # tiempo inicial
-        self.__minimos__ = []  # para métricas
-        self.__maximos__ = []  # para métricas
         self.__medias__ = []  # para métricas
-        self.__stds__ = []  # para métricas
         self.__cambios__ = 0
         self.__fit__ = None  # para el  modelo generacional
 
     def define_funcion_optimizar(self, funcion, desplazamiento, lim1, lim2):
+        """
+        Se define la función a optimizar y se disponibiliza para el resto de etapas
+        :param funcion: 'ESFERA' o 'SCHWEFEL'
+        :param desplazamiento:
+        :param lim1:
+        :param lim2:
+        :return:
+        """
         self.__lim1__ = lim1
         self.__lim2__ = lim2
         self.__desplazamiento__ = desplazamiento
@@ -466,21 +475,46 @@ class algortimo_evolutivo():
         if funcion == 'SCHWEFEL':
             def funcion_schwefel(variables):
                 return 418.9829 * len(variables) + sum([-1 * x * np.sin(np.sqrt(abs(x))) for x in variables])
+
             self.funcion = funcion_schwefel
+
     def genera_poblacion(self, n_pob, n_dim):
+        """
+        Genera la población para el algoritmo evolutivo
+        :param n_pob: Número de individuos en la población
+        :param n_dim: Número de dimensiones del problema
+        :return:
+        """
         self.__n_pob__ = n_pob
         self.__n_dim__ = n_dim
-        pob = []
-        for i in range(n_pob):
-            tmp = []
-            for i in range(n_dim):
-                tmp.append(random.random() * np.abs(self.__lim1__ - self.__lim2__) + self.__lim1__)
-            pob.append(tmp + [random.random() * self.__sd__])
-        self.poblacion = pd.DataFrame(np.stack(pob))
-        if type(self.__t__) is type(None):
-            self.__t__ = 1. / np.sqrt(n_pob)
+        if self.__modo_muta__ == 'un_paso':
+            pob = []
+            for i in range(n_pob):
+                tmp = []
+                for i in range(n_dim):
+                    tmp.append(random.random() * np.abs(self.__lim1__ - self.__lim2__) + self.__lim1__)
+                pob.append(tmp + [random.random() * self.__sd__])
+            self.poblacion = pd.DataFrame(np.stack(pob))
+            if type(self.__t__) is type(None):
+                self.__t__ = 1. / np.sqrt(n_pob)
+            if type(self.__t_prim__) is type(None):
+                self.__t_prim__ = 1. / np.sqrt(2 * np.sqrt(n_pob))
+        if self.__modo_muta__ == 'n_pasos':
+            pob = []
+            for i in range(n_pob):
+                tmp = []
+                tmp2 = []
+                for i in range(n_dim):
+                    tmp.append(random.random() * np.abs(self.__lim1__ - self.__lim2__) + self.__lim1__)
+                    tmp2.append(random.random() * self.__sd__)
+                pob.append(tmp + tmp2)
+            self.poblacion = pd.DataFrame(np.stack(pob))
+            if type(self.__t__) is type(None):
+                self.__t__ = 1. / np.sqrt(n_pob)
+            if type(self.__t_prim__) is type(None):
+                self.__t_prim__ = 1. / np.sqrt(2 * np.sqrt(n_pob))
 
-    def __muta_gaussian__(self, punto, learning_rate, umbral=0.01, mean=0, norm_sd=1):
+    def __muta_gaussian__(self, punto, umbral=0.01, mean=0, norm_sd=1):
         """
         Mutación gaussiana
         :param punto: punto a mutar
@@ -489,12 +523,28 @@ class algortimo_evolutivo():
         :param norm_sd: es la desviación estandar de la segunda gaussiana
         :return:
         """
-        __sd_new__ = punto[len(punto) - 1] * np.exp(learning_rate * random.gauss(0, 1))
-        if __sd_new__ < umbral:
-            __sd_new__ = umbral
-        return pd.Series([x + __sd_new__ * random.gauss(mean, norm_sd) for x in punto[:-1]] + [__sd_new__])
+        if self.__modo_muta__ == 'un_paso':
+            __sd_new__ = punto[len(punto) - 1] * np.exp(self.__t__ * random.gauss(0, 1))
+            if __sd_new__ < umbral:
+                __sd_new__ = umbral
+            return pd.Series([x + __sd_new__ * random.gauss(mean, norm_sd) for x in punto[:-1]] + [__sd_new__])
+        if self.__modo_muta__ == 'n_pasos':
+            tmp = [0] * 2 * self.__n_dim__
+            for i in range(self.__n_dim__):
+                __sd_new__ = punto[i + self.__n_dim__] * np.exp(
+                    self.__t__ * random.gauss(0, 1) + self.__t_prim__ * random.gauss(0, 1))
+                if __sd_new__ < umbral:
+                    __sd_new__ = umbral
+                tmp[i + self.__n_dim__] = __sd_new__
+                tmp[i] = punto[i] + __sd_new__ * random.gauss(mean, norm_sd)
+            return pd.Series(tmp)
 
     def __recombinacion_discreta__(self, elementos):
+        """
+        Devuelve los índices para  llevar a cabo una recombinación discreta.
+        :param elementos:
+        :return:
+        """
         rango = list(range(0, elementos))
         n1 = random.randint(0, elementos)
         ind1 = random.sample(rango, n1)
@@ -503,11 +553,26 @@ class algortimo_evolutivo():
         return ind1, rango
 
     def __recombina_series__(self, s1, s2, modo='discreta'):
+        """
+        Recombina dos series.
+        :param s1:
+        :param s2:
+        :param modo:
+        :return:
+        """
         if modo == 'discreta':
-            id1, id2 = self.__recombinacion_discreta__(self.__n_dim__ + 1)
-        return pd.concat([s1.iloc[id1], s2.iloc[id2]], axis=0).sort_index()
-
+            if self.__modo_muta__ == 'un_paso':
+                id1, id2 = self.__recombinacion_discreta__(self.__n_dim__ + 1)
+                return pd.concat([s1.iloc[id1], s2.iloc[id2]], axis=0).sort_index()
+            if self.__modo_muta__ == 'n_pasos':
+                id1, id2 = self.__recombinacion_discreta__( 2 * self.__n_dim__)
+                return pd.concat([s1.iloc[id1], s2.iloc[id2]], axis=0).sort_index()
     def recombina(self, lamb):
+        """
+        Lleva a cabo la recombinacón de toda la población para generar la descendencia
+        :param lamb:
+        :return:
+        """
         self.__n_desc__ = self.__n_pob__
         self.__n_offs_tot__ = lamb
 
@@ -521,38 +586,85 @@ class algortimo_evolutivo():
         df_recombined = df_recombined.T.reset_index(drop=True)
         self.__df_recombined__ = df_recombined
 
-    def muta(self, umbral=0.01, mean=0, norm_sd=1, modo='gaussian_paso_unico'):
-        if self.__modo__ == modo:
+    def muta(self, umbral=0.01, mean=0, norm_sd=1):
+        """
+        Aplica la mutación
+        :param umbral:
+        :param mean:
+        :param norm_sd:
+        :return:
+        """
+        if self.__modo_muta__ == 'un_paso':
             self.__df_recombined__ = self.__df_recombined__.apply(
-                self.__muta_gaussian__, axis=1, args=(self.__t__, umbral, mean, norm_sd))
+                self.__muta_gaussian__, axis=1, args=(umbral, mean, norm_sd))
+            self.__df_recombined__.iloc[:, :self.__n_dim__] = self.__df_recombined__.iloc[:, :self.__n_dim__].clip(
+                lower=self.__lim1__,
+                upper=self.__lim2__)
+        if self.__modo_muta__ == 'n_pasos':
+            self.__df_recombined__ = self.__df_recombined__.apply(
+                self.__muta_gaussian__, axis=1, args=(umbral, mean, norm_sd))
             self.__df_recombined__.iloc[:, :self.__n_dim__] = self.__df_recombined__.iloc[:, :self.__n_dim__].clip(
                 lower=self.__lim1__,
                 upper=self.__lim2__)
 
     def genera_descencencia(self, verbose=False):
+        """
+        Genera la descendencia
+        :param verbose:
+        :return:
+        """
         if self.__modo_desc__ == 'solo_desc':
-            self.__df_recombined__.loc[:, self.__n_dim__ + 1] = self.__df_recombined__.iloc[:, :self.__n_dim__].apply(
-                self.funcion,
-                axis=1)
-            self.df_desc = self.__df_recombined__.sort_values(by=self.__n_dim__ + 1, ascending=True).iloc[:self.__n_desc__,
-                           :self.__n_dim__ + 1].reset_index(drop=True)
-            self.__fit_mean_new__ = self.__df_recombined__.sort_values(self.__n_dim__ + 1, ascending=True).iloc[
-                                    :self.__n_desc__,
-                                    self.__n_dim__ + 1].reset_index(drop=True).mean()
+            if self.__modo_muta__ == 'un_paso':
+                self.__df_recombined__.loc[:, self.__n_dim__ + 1] = self.__df_recombined__.iloc[:, :self.__n_dim__].apply(
+                    self.funcion,
+                    axis=1)
+                self.df_desc = self.__df_recombined__.sort_values(by=self.__n_dim__ + 1, ascending=True).iloc[
+                               :self.__n_desc__,
+                               :self.__n_dim__ + 1].reset_index(drop=True)
+                self.__fit_mean_new__ = self.__df_recombined__.sort_values(self.__n_dim__ + 1, ascending=True).iloc[
+                                        :self.__n_desc__,
+                                        self.__n_dim__ + 1].reset_index(drop=True).mean()
+            if self.__modo_muta__ == 'n_pasos':
+                self.__df_recombined__.loc[:, 2 * self.__n_dim__] = self.__df_recombined__.iloc[:, :self.__n_dim__].apply(
+                    self.funcion,
+                    axis=1)
+                self.df_desc = self.__df_recombined__.sort_values(by= 2 * self.__n_dim__, ascending=True).iloc[
+                               :self.__n_desc__,
+                               :2 * self.__n_dim__].reset_index(drop=True)
+                self.__fit_mean_new__ = self.__df_recombined__.sort_values(2 * self.__n_dim__, ascending=True).iloc[
+                                        :self.__n_desc__,
+                                        2 * self.__n_dim__].reset_index(drop=True).mean()
+
         if self.__modo_desc__ == 'desc_y_padres':
-            tmp = pd.concat([self.poblacion, self.__df_recombined__]).reset_index(drop=True)
-            tmp.loc[:, self.__n_dim__ + 1] = tmp.iloc[:, :self.__n_dim__].apply(
-                self.funcion,
-                axis=1)
-            self.df_desc = tmp.sort_values(by=self.__n_dim__ + 1, ascending=True).iloc[:self.__n_desc__,
-                           :self.__n_dim__ + 1].reset_index(drop=True)
-            self.__fit_mean_new__ = tmp.sort_values(self.__n_dim__ + 1, ascending=True).iloc[
-                                    :self.__n_desc__,
-                                    self.__n_dim__ + 1].reset_index(drop=True).mean()
+            if self.__modo_muta__ == 'un_paso':
+                tmp = pd.concat([self.poblacion, self.__df_recombined__]).reset_index(drop=True)
+                tmp.loc[:, self.__n_dim__ + 1] = tmp.iloc[:, :self.__n_dim__].apply(
+                    self.funcion,
+                    axis=1)
+                self.df_desc = tmp.sort_values(by=self.__n_dim__ + 1, ascending=True).iloc[:self.__n_desc__,
+                               :self.__n_dim__ + 1].reset_index(drop=True)
+                self.__fit_mean_new__ = tmp.sort_values(self.__n_dim__ + 1, ascending=True).iloc[
+                                        :self.__n_desc__,
+                                        self.__n_dim__ + 1].reset_index(drop=True).mean()
+            if self.__modo_muta__ == 'n_pasos':
+                tmp = pd.concat([self.poblacion, self.__df_recombined__]).reset_index(drop=True)
+                tmp.loc[:,  2 * self.__n_dim__] = tmp.iloc[:, :self.__n_dim__].apply(
+                    self.funcion,
+                    axis=1)
+                self.df_desc = tmp.sort_values(by= 2 * self.__n_dim__, ascending=True).iloc[:self.__n_desc__,
+                               : 2 * self.__n_dim__].reset_index(drop=True)
+                self.__fit_mean_new__ = tmp.sort_values( 2 * self.__n_dim__, ascending=True).iloc[
+                                        :self.__n_desc__,
+                                        2 * self.__n_dim__].reset_index(drop=True).mean()
         if verbose:
             print(self.__fit_mean_new__)
 
     def fin_paso(self, verbose=False):
+        """
+        En caso de que proceda lleva a cabo el paso de generación
+        :param verbose:
+        :return:
+        """
         if type(self.__fit__) is type(None):
             self.__fit__ = self.__fit_mean_new__
             self.__poblacion__ = self.df_desc
